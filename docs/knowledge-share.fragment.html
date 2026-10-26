@@ -1,6 +1,6 @@
 <h2>为了少写几次开发改动说明，我做了个 Skill</h2>
 
-<p>原本只是想省掉写文档时截图、贴图的麻烦，没想到前后推翻了四次。这里记一下过程，顺便把踩过的坑也留下来。</p>
+<p>原本只是想省掉写文档时截图、贴图的麻烦，没想到前后推翻了五次。这里记一下过程，顺便把踩过的坑也留下来。</p>
 
 <h2>一、起因：一份要贴 13 张代码截图的说明</h2>
 
@@ -116,6 +116,8 @@ const TIP = {
 
 <p>如果没有写入权限，就提示手动安装，但不能影响正常装包。</p>
 
+<p>后来发现 <code>npx dev-change-report</code> 也能用，而且一样会触发 <code>postinstall</code>。它是把包装进 npm 缓存再执行，不算「没安装」，钩子该跑还是跑。所以同事只想试一次的话，连 <code>package.json</code> 都不用改。这条我原来理解错了，以为不落盘就不会跑钩子。</p>
+
 <h2>五、现在是怎么用的</h2>
 
 <p>打包完还有一个小问题：同事不一定知道该怎么让 AI 调用这个 Skill。</p>
@@ -185,7 +187,7 @@ tokens.push({ type: compiled.types[Number(key.slice(1))], text: match[0] });</pr
 
 <p>还有个细节值得记：整段代码装在一个段落里，用软换行分段，而不是「一行一个段落」。Word 的段落底纹只在段落范围内生效，拆成多段会出现段间白缝，看着不像一整块。</p>
 
-<h3>Excel 每一列填什么，我改了三次</h3>
+<h3>Excel 每一列填什么，我改了四次</h3>
 
 <p>Excel 的麻烦不在生成，在于搞清楚每列的意思。模板是从 OA 下载的 <code>.xls</code>，打开一看是老的 BIFF8 格式，外面裹着 OLE2 容器。为了确认行结构，我写了个解析器把每个 sheet 的单元格读出来，最后确认：第 1 行是提醒（合并单元格），第 2 行才是表头，第 3 行起是数据。</p>
 
@@ -203,6 +205,24 @@ tokens.push({ type: compiled.types[Number(key.slice(1))], text: match[0] });</pr
 
 <p>顺带把专门用来填模组的 <code>data-module</code> 属性删了。留着只会让人以为它有用。</p>
 
+<p>过了几天又看到一句：「这个 excel 的小类，是有个下拉字典的，应该根据整理的代码的语言自动匹配，包括类别也是一样的要自动匹配。」</p>
+
+<p>我原本以为这两列只能手填。既然下拉能选，字典一定在某个地方，但我扫了一遍可见的 sheet，只看到第 1 行提醒、第 2 行表头，没有任何选项列表。</p>
+
+<p>后来用 Excel COM 把 <code>Workbook.Names</code> 挨个打出来，才看到三个名字指向隐藏工作表：</p>
+
+<pre data-code-lang="text">hidden3b0cd -&gt; =样例!$A$1:$A$7           类别
+hidden52c2d -&gt; =hidden52c2d!$A$1:$A$16   小类
+hidden6170a -&gt; =hidden6170a!$A$1:$A$3    语言</pre>
+
+<p>名字是 <code>hidden</code> 加一串随机码，sheet 的 <code>Visible</code> 是 0 而不是 -1。肉眼翻标签页是翻不到的，只能按名字找。</p>
+
+<p>拿到字典就好办了。小类按扩展名推：<code>.vue</code> / <code>.ts</code> 是 <code>WEB（前端）</code>，<code>.java</code> 是 <code>JAVA（后端）</code>，<code>.pck</code> 是 <code>PACKAGE（包）</code>，认不出的归 <code>OTHERS（另外）</code>。类别按改动性质推：分支内新增的文件算 <code>新增程序</code>（查 <code>git diff --name-status</code> 就知道），数据脚本算 <code>数据修正</code>，其余看标题关键词。手写的 <code>data-category</code> 仍然优先。</p>
+
+<p tip="warn">字典里的括号是<b>全角</b>的，<code>WEB（前端）</code>。写成半角导入端就认不出来。这种值只能逐字照抄，不能凭印象写。</p>
+
+<p>有意思的是，这跟上一段「留空」并不矛盾。上次留空是因为那两个值我<b>没有任何依据</b>，填了就是硬猜；这次小类能从扩展名推、类别能从 git 状态推，都是有依据的。同样是「自动填」，一个是猜，一个是算。</p>
+
 <h3>文件清单从正文里拿掉了</h3>
 
 <p>同一句反馈的前半段是：「涉及文件清单不要写在开发描述里，应该生成 Excel」。</p>
@@ -218,7 +238,32 @@ tokens.push({ type: compiled.types[Number(key.slice(1))], text: match[0] });</pr
 ├── blRelease.docx  15 KB   发附件
 └── blRelease.xlsx  5.5 KB  走导入</pre>
 
-<h2>七、顺手记几个踩过的坑</h2>
+<h2>七、第三次反转：图片又成了默认</h2>
+
+<p>着色方案用了没多久，又收到一句：「哦豁，代码块还是处理成图片吧，不然开发描述过不了 AI 审核，审核必须要图文并茂哈哈。」</p>
+
+<p>这次的理由跟前面几轮都不一样。不是为了排版，也不是 Word 兼容，而是审阅流程本身的要求：通篇文字加代码块的文档，会被判成「不够图文并茂」打回。</p>
+
+<p>于是图片重新变成默认，<code>--code-text</code> 留成开关，需要可复制的代码时再打开。两条路都留着——同一个人在不同场合，对同一件事的结论会不一样。</p>
+
+<p>但这次不是把第一版搬回来。<b>代码图带语法高亮</b>，配色跟 HTML 里的文本模式完全一致：关键字红、字符串深蓝、注释灰、数字蓝、类型橙、函数名紫。</p>
+
+<p>做法上切了一刀：<b>着色在 JS 里做，绘制在 PowerShell 里做</b>。着色器本来就是给 HTML 用的，直接复用，把代码切成带颜色的片段；PS 那边完全不认语法，只按片段给的起始列和颜色去画。这样两条路径的颜色不会哪天改了一边忘了另一边。</p>
+
+<p>第一版画出来，单词之间有一道道空隙，越往右越明显。原因是字宽用 <code>MeasureString('M')</code> 量，而默认的 <code>StringFormat</code> 带行边距，量出来的值比真实步进大一点点。按它算 <code>x = 起始列 × 字宽</code>，误差逐段累积，右边就散了。</p>
+
+<p>换成 <code>GenericTypographic</code> 加 <code>MeasureTrailingSpaces</code> 之后才对上：</p>
+
+<pre data-code-lang="powershell">$fmt = [System.Drawing.StringFormat]::GenericTypographic.Clone()
+$fmt.FormatFlags = $fmt.FormatFlags -bor [System.Drawing.StringFormatFlags]::MeasureTrailingSpaces</pre>
+
+<p>分辨率也调了一次。按 2 倍渲染字最清楚，但 base64 嵌进 HTML 之后文件到了 900 KB，粘进编辑器会卡。最后定在 1.5 倍——478pt 的显示宽度下大约 144 DPI，够看清，HTML 也回到 665 KB。</p>
+
+<p>现在的产物：12 张代码图，<code>report.html</code> 665 KB、<code>blRelease.docx</code> 445 KB（14 页）、<code>blRelease.xlsx</code> 5.5 KB（30 行明细）。Word 从 12 页涨到 14 页，是图片换来的代价，认了。</p>
+
+<p tip="info">这次算是学乖了：先问清楚交付流程要什么，再决定技术方案。图片能不能搜索，在「审核要图文并茂」这个前提面前根本不是主要矛盾。</p>
+
+<h2>八、顺手记几个踩过的坑</h2>
 
 <h3>1. p 标签不能嵌套</h3>
 
@@ -259,7 +304,7 @@ may not perform this action.</pre>
 
 <p>图按 1 倍分辨率画出来，塞进 A4 正文宽度（约 482pt）后，12px 的字缩成了 6pt。改成 2 倍分辨率渲染、嵌入时尺寸减半，字号才回到 9pt。</p>
 
-<p>代价是图片体积翻倍。不过这个坑最后没意义了——整个图片方案被删掉了。教训留下来：<b>凡是「渲染出来再缩放」的东西，都要按最终显示的尺寸倒推渲染分辨率</b>，不然一缩放就不可读。</p>
+<p>代价是图片体积翻倍。这个「渲染再缩放」的换算后面一直用得上，包括后来把倍数从 2 改成 1.5 的时候。教训是：<b>凡是「渲染出来再缩放」的东西，都要按最终显示的尺寸倒推渲染分辨率</b>，不然一缩放就不可读。</p>
 
 <h3>7. 表头不一定在第一行</h3>
 
@@ -273,7 +318,11 @@ may not perform this action.</pre>
 
 <p>正确做法是先写同目录的临时名，成功后再改名替换；或者干脆先确认文件可写再动手。</p>
 
-<h2>八、哪些重复工作适合做成 Skill</h2>
+<h3>9. 下拉字典可能藏在隐藏工作表里</h3>
+
+<p>模板里的下拉选项不一定是常量列表，可能指向一个 <code>Visible=0</code> 的 sheet。翻可见的标签页永远找不到，得按 <code>Workbook.Names</code> 里的引用范围去找。这些名字常是 <code>hidden</code> 加随机码，看不出含义，只能靠 <code>RefersTo</code> 指到哪儿来判断哪个是哪个。</p>
+
+<h2>九、哪些重复工作适合做成 Skill</h2>
 
 <p>做完这次，我觉得有几类事情特别适合拿来试：</p>
 
@@ -292,14 +341,15 @@ may not perform this action.</pre>
 □ 交付方式最多一步（npm i 算一步，解压+找目录+重启算三步）
 □ 副作用脚本必须永不失败
 □ 写清楚「用户会怎么说」，不要假设他知道工具叫什么
-□ 猜不出来的值就留空，别拿默认值冒充结论
-□ 机器要读的数据别塞进给人看的文档</pre>
+□ 猜不出来的值就留空，别拿默认值冒充结论（能从文件类型、git 状态推出来的，算出来的不算猜）
+□ 机器要读的数据别塞进给人看的文档
+□ 同一个方案被推翻三次也别急着删，留个开关</pre>
 
 <p>其中我最满意的还是把内容和样式拆开。以前每个片段都带着一堆样式，改起来很费劲；现在片段只写要展示什么，最终样式由构建脚本统一加。哪天想换颜色，改一个地方就行。</p>
 
-<p>最后两条是这一轮才加进来的。「留空」那条来自 Excel 的模组列——我原来填了猜出来的默认值，看着挺完整，实际上是在制造「已经确认过」的错觉。「别混在一起」那条来自文件清单：它该给导入系统读，放在正文里两头都不讨好。</p>
+<p>后面几条都是这一轮才加进来的。「留空」那条来自 Excel 的模组列——我原来填了猜出来的默认值，看着挺完整，实际上是在制造「已经确认过」的错觉。「别混在一起」那条来自文件清单：它该给导入系统读，放在正文里两头都不讨好。最后一条是这几次反转换来的——图片、文本两种模式现在都留着，加个参数的成本远低于再删一次。</p>
 
-<h2>九、最后说说效果</h2>
+<h2>十、最后说说效果</h2>
 
 <p>几个阶段的大致情况是这样：</p>
 
@@ -310,14 +360,15 @@ may not perform this action.</pre>
   <tr><td>第二版</td><td>299 行</td><td>手动拷文件</td><td>约 5 分钟</td></tr>
   <tr><td>第三版</td><td>299 行</td><td><code>npm i</code></td><td>约 1 分钟</td></tr>
   <tr><td>第四版</td><td>1890 行</td><td><code>npm i</code></td><td>约 1 分钟，同时出 HTML / Word / Excel</td></tr>
+  <tr><td>第五版</td><td>2464 行</td><td><code>npm i</code> / <code>npx</code></td><td>约 1 分钟，代码图带语法高亮</td></tr>
 </table>
 
-<p>代码量从 299 涨到 1890，看着吓人，但多出来的部分基本都在导出上：<code>docx.js</code> 345 行、<code>xlsx.js</code> 300 行、着色器 179 行、ZIP 113 行、HTML 解析 93 行、调度 93 行，加起来 1120 多行。主报告链路（<code>build.js</code> + <code>changes.js</code> + <code>cli.js</code> + <code>install.js</code>）还是 420 多行，几乎没变。</p>
+<p>代码量从 299 涨到 2464，看着吓人，但多出来的部分基本都在导出上：<code>docx.js</code> 389 行、<code>xlsx.js</code> 346 行、代码图渲染 314 行（PowerShell 192 + 调度 122）、着色器 179 行、ZIP 119 行、HTML 解析 93 行、产物调度 141 行，加起来 1580 多行。主报告链路（<code>build.js</code> + <code>changes.js</code> + <code>cli.js</code> + <code>install.js</code> + <code>postinstall.js</code>）还是 510 多行，几乎没变。</p>
 
 <p>现在最明显的变化，是需求做完后不太抗拒写说明了。以前总觉得还得花半小时整理格式、贴图；现在让 AI 先生成一版，再看内容有没有遗漏，省事不少。</p>
 
-<p>回头看，第一版做得太重了。但也是折腾过那版，才知道问题根本不在截图速度，而在于能不能跳过截图。后来又因为 Word 需要，把图片方案捡回来用了一轮，再删掉——两次判断的依据不一样：第一次是「粘贴太麻烦」，第二次是「图片不能选中和搜索」。<b>同一个方案，换个场景就未必成立。</b></p>
+<p>回头看，第一版做得太重了。但也是折腾过那版，才知道问题根本不在截图速度，而在于能不能跳过截图。后面图片方案又进出了两次：Word 需要它，捡回来；不能搜索，删掉；审阅要求图文并茂，再捡回来。四次判断的依据都不一样——粘贴麻烦、Word 排版、不能搜索、审核门槛。<b>同一个方案，换个场景结论就反过来了。</b></p>
 
 <p>对这种工具来说，先做出来，再慢慢删掉不必要的东西，可能比一开始就追求完整更合适。</p>
 
-<p tip="info">工具放在 <b>npmjs.com/package/dev-change-report</b>，有兴趣可以用 <code>npm i -D dev-change-report</code> 装一下。</p>
+<p tip="info">工具已经开源在 <b>github.com/lws123321/dev-change-report</b>，包在 <b>npmjs.com/package/dev-change-report</b>。装很简单：<code>npm i -D dev-change-report</code>；不想装的话直接 <code>npx dev-change-report build ...</code> 也行，包里有 postinstall，npx 跑一次 skill 也会注册上。</p>
