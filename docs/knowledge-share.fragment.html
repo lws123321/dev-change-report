@@ -1,0 +1,323 @@
+<h2>为了少写几次开发改动说明，我做了个 Skill</h2>
+
+<p>原本只是想省掉写文档时截图、贴图的麻烦，没想到前后推翻了四次。这里记一下过程，顺便把踩过的坑也留下来。</p>
+
+<h2>一、起因：一份要贴 13 张代码截图的说明</h2>
+
+<p>前阵子做提单手机端适配，涉及两个仓库、31 个文件，新增了 4400 多行代码。功能做完后，评审还要交一份「开发改动说明」，既要解释每处修改，也要附上对应的代码。</p>
+
+<p>第一次只能手工整理，大概是这么个流程：</p>
+
+<ul>
+  <li>打开 <code>git diff</code>，逐个文件找修改点，顺便回忆当时为什么这么写</li>
+  <li>把关键代码复制到文档里</li>
+  <li>调整段落、编号和格式</li>
+  <li>因为 OA 的 CKEditor 处理不好 <code>&lt;pre&gt;</code> 样式，代码只能先转成图片</li>
+  <li>截图、上传，然后挨个调整图片位置</li>
+</ul>
+
+<p>最费时间的就是贴代码。13 段代码要截 13 次图，再一张张传到 OA 里，传完还得检查位置有没有放错。整份说明花了大约 40 分钟，光截图和上传就占了差不多 30 分钟。</p>
+
+<p tip="warn">而且<b>改完文档还可能得重新贴图</b>。有次评审让我把第三节的原因写细一点，改完又得调整对应的截图，挺烦。</p>
+
+<h2>二、第一版：自动生成代码截图</h2>
+
+<p>既然麻烦的是截图，我一开始就让 AI 帮忙写个脚本，把代码直接渲染成图片。</p>
+
+<p>当时想尽量少加依赖，项目里也没装 sharp、puppeteer、canvas 这些库。最后走了 PowerShell + GDI+ 这条路，自己处理字体宽度、中英文混排、长行换行、行号和语法高亮，还做了浅色、深色两套主题。</p>
+
+<table>
+  <tr><th>能力</th><th>实现</th></tr>
+  <tr><td>语法高亮</td><td>内置 tokenizer，支持 ts/js/vue/scss/json/diff</td></tr>
+  <tr><td>中英混排</td><td>ASCII 用 Consolas，中文用雅黑，CJK 按双宽计算</td></tr>
+  <tr><td>超长行</td><td>自动折行，续行加 ↳ 标记避免误认为新行</td></tr>
+  <tr><td>主题</td><td>light / dark 两套</td></tr>
+</table>
+
+<p>功能是有了，代码量也上去了：<code>render-code.ps1</code> 353 行、<code>build-report.cjs</code> 180 行、<code>collect-changes.cjs</code> 122 行，加上 <code>SKILL.md</code> 159 行，总共 <b>814 行，约 31 KB</b>。</p>
+
+<p>真正用的时候才发现问题：最后生成了 3 个 HTML 和 13 张 PNG，一共 1.2 MB。正文可以复制进去，但图片还得逐张上传、替换占位符。截图不用自己截了，上传这一步还是没省掉。</p>
+
+<h2>三、第二版：其实不需要生成图片</h2>
+
+<p>后来我直接跟 AI 说：「算了，还是用代码块吧，截图很麻烦，另外整体样式尽量简洁，减少代码量。」</p>
+
+<p>改完才发现，前面想复杂了。</p>
+
+<p>OA 需要的只是<b>能正常显示的代码</b>，并没有规定一定得是图片。之前 CKEditor 会把 <code>&lt;pre&gt;</code> 的样式处理掉，但测试下来，像 <code>white-space:pre-wrap</code> 这样的内联样式能保留下来。既然如此，用普通代码块就够了。</p>
+
+<p>还有个顺手改掉的问题：<b>样式不应该散落在每段内容里</b>。第一版的片段到处都是 <code>style="..."</code>，调个颜色就要找好几处。新版把样式交给生成脚本统一处理，内容里只管写结构。</p>
+
+<p>比如，样式统一放在 <code>lib/build.js</code> 的两个对象里：</p>
+
+<pre data-code-lang="js">// lib/build.js 顶部
+const STYLE = {
+  h2: 'font-size:19px;font-weight:600;margin:26px 0 12px;...',
+  pre: 'background:#f6f8fa;border:1px solid #e5e8eb;...',
+  // ...
+};
+const TIP = {
+  info: ['#f2f7f4', '#0a7a50'],
+  warn: ['#fdf8e9', '#c99515'],
+  danger: ['#fcf0ef', '#c0392b']
+};</pre>
+
+<p>写报告时只保留这些标签：</p>
+
+<pre data-code-lang="html">&lt;h2&gt;一、选择柜组件优化&lt;/h2&gt;
+&lt;p&gt;原问题：默认按实际柜号搜索且发货日期写死当天，必然空结果。&lt;/p&gt;
+&lt;pre data-code-file="src/views/qbcrm/blRelease/Form.vue" data-code-range="56-79"&gt;&lt;/pre&gt;
+&lt;p tip="info"&gt;改后效果：打开即有数据。&lt;/p&gt;</pre>
+
+<p>这里最实用的是 <code>data-code-file</code> 和 <code>data-code-range</code>。指定文件路径和行号，构建时再读取实际代码，做转义和样式处理。这样既不用手动复制，也不怕文档里的代码和项目对不上。</p>
+
+<p>两版放在一起看，差别很直观：</p>
+
+<table>
+  <tr><th>维度</th><th>图片方案</th><th>代码块方案</th></tr>
+  <tr><td>代码量</td><td>814 行 / 31 KB</td><td>299 行 / 14 KB</td></tr>
+  <tr><td>产物</td><td>3 HTML + 13 PNG = 1.2 MB</td><td>1 个 HTML，47 KB</td></tr>
+  <tr><td>粘贴步骤</td><td>先粘正文，再传 13 张图</td><td>全选粘贴，完事</td></tr>
+  <tr><td>平台依赖</td><td>PowerShell + GDI+，仅 Windows</td><td>Node 18+，跨平台</td></tr>
+</table>
+
+<h2>四、给同事用，安装也得简单点</h2>
+
+<p>自己用了一阵，同事问我能不能发一份。起初我直接打了个 zip，让他解压到指定目录，再重启编辑器。结果光「解压到哪里」就来回解释了好几遍。</p>
+
+<p>这才发现，自己用和给别人用是两回事。安装步骤越多，后面要解释的事情就越多。</p>
+
+<p>所以我把它做成 npm 包，并在 <code>postinstall</code> 里处理 Skill 的注册：</p>
+
+<pre data-code-lang="json">{
+  "bin": { "dcr": "bin/dcr.js" },
+  "scripts": { "postinstall": "node bin/postinstall.js" }
+}</pre>
+
+<p>这样同事只要在项目里执行：</p>
+
+<pre data-code-lang="bash">npm i -D dev-change-report</pre>
+
+<p>安装时会看到类似这样的提示：</p>
+
+<pre data-code-lang="text">&gt; dev-change-report@1.1.2 postinstall
+&gt; node bin/postinstall.js
+
+[dev-change-report] 已安装: C:\Users\xxx\.agents\skills\dev-change-report\SKILL.md
+[dev-change-report] skill 已就绪，重启编辑器后对 AI 说「整理一下这次改动」即可触发。</pre>
+
+<p>不过 <code>postinstall</code> 毕竟会在安装依赖时自动运行，我给它加了几条限制：</p>
+
+<ul>
+  <li><b>不能影响安装</b>：捕获异常，确保注册失败也不会让 <code>npm i</code> 跟着失败</li>
+  <li><b>重复执行别刷屏</b>：Skill 内容没变化就静默跳过</li>
+  <li><b>要能主动跳过</b>：CI 之类的场景可以设置 <code>DCR_SKIP_INSTALL=1</code></li>
+</ul>
+
+<p>如果没有写入权限，就提示手动安装，但不能影响正常装包。</p>
+
+<h2>五、现在是怎么用的</h2>
+
+<p>打包完还有一个小问题：同事不一定知道该怎么让 AI 调用这个 Skill。</p>
+
+<p>我就在 <code>SKILL.md</code> 里补了几种常见说法，让 AI 根据用户的话去选参数：</p>
+
+<table>
+  <tr><th>用户说法</th><th>默认理解</th></tr>
+  <tr><td>整理一下这次改动</td><td>当前仓库，自动探测基线</td></tr>
+  <tr><td>总结本次改动，要能粘到 OA</td><td>同上，强调内联样式完整</td></tr>
+  <tr><td>整理 xxx 分支相对 release 的改动</td><td>指定 <code>--base</code></td></tr>
+  <tr><td>先列出改了哪些文件</td><td>只跑 <code>dcr changes</code>，不生成报告</td></tr>
+  <tr><td>导出成 word / 要一份 excel 明细</td><td>加 <code>--docx</code> / <code>--xlsx</code></td></tr>
+</table>
+
+<p>碰到没说清的地方，先按默认值处理。能自己判断的，就别一直停下来问。</p>
+
+<p>现在大概是这样用的：</p>
+
+<p tip="info"><b>我</b>：帮我整理一下这次改动，输出开发描述，要能粘到 OA 里<br /><b>AI</b>：已生成 <code>change-report/</code> 下的 <code>report.html</code>、<code>blRelease.docx</code>、<code>blRelease.xlsx</code>。HTML 打开后全选复制，OA 编辑器切到「源码」模式粘贴即可。</p>
+
+<p>背后会先用 <code>dcr changes</code> 看分支和改动文件，再读 diff 整理每处改动的原因、做法和结果。需要展示代码的地方，按文件和行号引用，最后用 <code>dcr build</code> 生成三个产物。</p>
+
+<p>内容不合适也不用从头来，直接继续说就行，比如：</p>
+
+<ul>
+  <li>代码太多了，只留最核心的 3 段</li>
+  <li>再加一节上线注意事项</li>
+  <li>这处代码用 diff 展示一下修改前后</li>
+</ul>
+
+<h2>六、后来又要 Word 和 Excel，图片方案又回来了一次</h2>
+
+<p>HTML 用了一阵，评审的口味变了：「导出一份 Word 吧，附件好发。」同时 OA 那边开始走导入流程，要求附一份 Excel 明细表。</p>
+
+<p>这两个需求把原本已经删掉的图片方案又拽了回来。Word 里怎么放代码？第一反应还是渲染成图片——这次不需要粘贴，图片在 Word 里显示得挺规整。</p>
+
+<p>于是把 PowerShell + GDI+ 那套捡回来，砍成 160 行的精简版，只留等宽、行号、折行。docx 也从零拼 OOXML，因为不想为这个功能加依赖，ZIP 是自己写的：<code>zlib.deflateRawSync</code> 压缩，CRC32 手算，本地头 + 中央目录 + EOCD 加起来一百来行。</p>
+
+<p>第一次生成的 docx 有 547 KB，9 页，11 张代码图。打开一看，字小得没法读——图按 1 倍分辨率出，等比缩到页宽之后，12px 的字只剩 6pt。</p>
+
+<p>改成「按 2 倍分辨率渲染，嵌入时尺寸减半」，所有代码块的字号才统一在 9pt 上下。</p>
+
+<p tip="warn">这个「2 倍渲染再折半」我当成经验写进了开发文档。<b>两周后整个方案被删掉了。</b></p>
+
+<p>删掉的原因是另一句话：「我感觉代码块用截图好像不是很好，还是用颜色代码块吧，如果代码能着色就更好了。」</p>
+
+<p>回头看，这个判断是对的，而且理由比「省事」更硬：</p>
+
+<ul>
+  <li>Word 里的图片不能选中、不能搜索。评审想找一个函数名，翻不到</li>
+  <li>别人想摘一段去跑，得先照着截图敲一遍</li>
+  <li>547 KB 里有 500 KB 是 PNG，当邮件附件都嫌重</li>
+</ul>
+
+<p>于是把图片链路整个删掉，写了 179 行的着色器。做法很土：关键字、字符串、注释、数字各归一类，用一组带命名分组的正则拼成一个大正则，sticky 模式从前往后扫，没命中就往前挪一个字符。</p>
+
+<pre data-code-lang="js">const source = list.map((rule, i) =&gt; `(?&lt;r${i}&gt;${rule.source})`).join('|');
+const re = new RegExp(source, 'gy');
+// ...
+const key = Object.keys(match.groups).find((name) =&gt; match.groups[name] !== undefined);
+tokens.push({ type: compiled.types[Number(key.slice(1))], text: match[0] });</pre>
+
+<p>它不需要理解语法，只要「别认错」就行。验证方式也很土：把切出来的 token 拼回去，跟原文逐字比对，一致才算过。</p>
+
+<p>Word 里的代码变成浅灰底、左侧一条竖线、等宽字体，关键字红、字符串蓝、注释灰。文档从 547 KB 掉到 15 KB，代码能选中、能搜索、能复制。</p>
+
+<p>还有个细节值得记：整段代码装在一个段落里，用软换行分段，而不是「一行一个段落」。Word 的段落底纹只在段落范围内生效，拆成多段会出现段间白缝，看着不像一整块。</p>
+
+<h3>Excel 每一列填什么，我改了三次</h3>
+
+<p>Excel 的麻烦不在生成，在于搞清楚每列的意思。模板是从 OA 下载的 <code>.xls</code>，打开一看是老的 BIFF8 格式，外面裹着 OLE2 容器。为了确认行结构，我写了个解析器把每个 sheet 的单元格读出来，最后确认：第 1 行是提醒（合并单元格），第 2 行才是表头，第 3 行起是数据。</p>
+
+<p>写 BIFF8 不现实，所以产出 <code>.xlsx</code>，并在提示里说明「导入工具只认 .xls 的话，另存为 Excel 97-2003 工作簿」。</p>
+
+<p>第一版按「一个改动点一行」做：明细内容填标题加摘要，备注填涉及的文件。结果被打回来了——</p>
+
+<p tip="info">「明细内容列才是代码路径，意思就是备注和明细内容要换一下，然后一个代码明细是一行数据，备注也要简洁。」</p>
+
+<p>这句话把表的性质改了。它不是「改动摘要表」，而是<b>文件清单</b>：一行对应一个文件，明细内容填路径，备注只写一句能说明这行为什么改的话。改完 30 个文件出 30 行。</p>
+
+<p>中间撞了两个坑：同一个文件在多个改动点出现会重复（清单里出现重复记录，导入端会报错），以及行高被写死成 42 磅，长路径直接被截断。前者加了去重，后者干脆不写行高，交给 Excel 自己算。</p>
+
+<p>最后一次调整是「模组和语言列留空即可」。这两列原来填的是我猜的默认值（<code>WEB（前端）</code> / <code>ZHS</code>），留空反而更诚实——空着的格子，填表的人会看一眼；填了默认值，容易被当成已经确认过。</p>
+
+<p>顺带把专门用来填模组的 <code>data-module</code> 属性删了。留着只会让人以为它有用。</p>
+
+<h3>文件清单从正文里拿掉了</h3>
+
+<p>同一句反馈的前半段是：「涉及文件清单不要写在开发描述里，应该生成 Excel」。</p>
+
+<p>我原本在报告最后放了一节「涉及文件清单」，30 行表格。写的时候觉得挺完整，但对读文档的人价值很低——他关心的是为什么这么改，不是改了哪些文件。文件清单是给导入系统读的，那它就该待在 Excel 里。</p>
+
+<p>现在文档只剩五节：做了什么、分模块讲清楚、验证记录、上线说明。文件路径靠两处收集：正文里 <code>data-code-file</code> 引用的，加上 <code>data-files</code> 里手写补的（没贴代码但改了文件的情况）。</p>
+
+<p>三个产物也统一进了 <code>change-report/</code>，走完流程整个目录删掉就行：</p>
+
+<pre data-code-lang="text">change-report/
+├── report.html     35 KB   粘 OA 用
+├── blRelease.docx  15 KB   发附件
+└── blRelease.xlsx  5.5 KB  走导入</pre>
+
+<h2>七、顺手记几个踩过的坑</h2>
+
+<h3>1. p 标签不能嵌套</h3>
+
+<p>图注本来写成 <code>&lt;p&gt;图 1 xxx&lt;/p&gt;</code> 放在 <code>&lt;p&gt;</code> 里，编辑器会把它拆成两段，结构全乱。改成 <code>&lt;span style="display:block"&gt;</code>。</p>
+
+<h3>2. 命令行参数写法没统一</h3>
+
+<p>传 <code>--max-width</code> 不生效，检查才发现解析器只认 <code>--maxWidth</code>。后来统一把短横线格式转成驼峰：</p>
+
+<pre data-code-lang="js">const key = rawKey.replace(/-([a-z])/g, (_, c) =&gt; c.toUpperCase());</pre>
+
+<h3>3. npm 新版本没有立刻装上</h3>
+
+<p>发布 1.1.0 后马上试装，结果拿到的还是 1.0.0。我查了一下那次请求的响应头：</p>
+
+<pre data-code-lang="text">cache-control: public, max-age=300</pre>
+
+<p>里面的 <code>max-age=300</code> 表示这份缓存最多会保留 300 秒。后来再试就正常了。以后刚发完版遇到旧版本，我会先确认缓存和 registry，不急着怀疑包没发上去。</p>
+
+<h3>4. 发布用的 token 删不了版本</h3>
+
+<p>用 granular token 发包没问题，但想删掉当时出现的 <code>0.0.0-stage</code> 占位版本，就碰到了这个 403：</p>
+
+<pre data-code-lang="text">403 Granular access tokens that bypass two-factor authentication
+may not perform this action.</pre>
+
+<p>这个 token 允许绕过发布时的双重验证，但不能用来执行 unpublish。我最后改用 deprecate 给占位版本加废弃提示，既不用删除版本，以后要撤掉提示也方便。</p>
+
+<h3>5. Volta 返回的不是实际 node.exe</h3>
+
+<p>试着用 Node SEA 打单文件 exe 时，<code>Get-Command node</code> 找到的是 Volta 的代理程序，只有 5.4 MB。拿它做 postject 注入会报 <code>Error when injecting resource</code>。后来才找到实际的 Node：<code>AppData\Local\Volta\tools\image\node\22.23.2\node.exe</code>，大约 83 MB。</p>
+
+<p>所以我给 exe 构建脚本加了个简单判断：文件小于 20 MB 就先报错，让使用者用 <code>--node</code> 指定实际路径。</p>
+
+<p tip="warn">exe 最后确实打出来了，但目前没打算推广。它有 83 MB，而 npm 包只有约 11 KB。周围做前端的同事本来就装了 Node，没必要为省一次环境安装带这么大个文件，所以只保留构建脚本，不把 exe 放进版本库。</p>
+
+<h3>6. Word 里代码图缩到页宽只剩 6pt</h3>
+
+<p>图按 1 倍分辨率画出来，塞进 A4 正文宽度（约 482pt）后，12px 的字缩成了 6pt。改成 2 倍分辨率渲染、嵌入时尺寸减半，字号才回到 9pt。</p>
+
+<p>代价是图片体积翻倍。不过这个坑最后没意义了——整个图片方案被删掉了。教训留下来：<b>凡是「渲染出来再缩放」的东西，都要按最终显示的尺寸倒推渲染分辨率</b>，不然一缩放就不可读。</p>
+
+<h3>7. 表头不一定在第一行</h3>
+
+<p>读 Excel 模板时我先按「第 1 行是表头」写解析，结果读出来全是空的。把每个 sheet 的单元格 dump 出来才看清：第 1 行是一条居中的提醒文字，占满 A 到 F 并做了合并，真正的表头在第 2 行。</p>
+
+<p>如果按第 1 行写，生成出来的表导入时会被当成「类别」列里塞了一句提醒，直接报错。<b>拿到别人的模板，先 dump 一遍单元格再动手。</b></p>
+
+<h3>8. 覆盖被占用的文件，别直接 -Force</h3>
+
+<p>重新生成 Excel 时文件还开在 WPS 里，我用了 <code>Copy-Item -Force</code>。它先删了旧文件，再写入时被文件锁拦住，结果旧文件没了，新文件也没写进去。</p>
+
+<p>正确做法是先写同目录的临时名，成功后再改名替换；或者干脆先确认文件可写再动手。</p>
+
+<h2>八、哪些重复工作适合做成 Skill</h2>
+
+<p>做完这次，我觉得有几类事情特别适合拿来试：</p>
+
+<ul>
+  <li>经常重复做，比如每个需求结束都要写一次说明</li>
+  <li>做法差不多固定，不需要每次从零想流程</li>
+  <li>里面有不少复制、粘贴、改格式这类机械操作</li>
+</ul>
+
+<p>另外，写下几个下次还会沿用的做法：</p>
+
+<pre data-code-lang="text">□ 把「配置」和「逻辑」分开，配置单独一个文件
+□ 让使用者只写声明，不写实现（片段里只写标签，样式全由脚本注入）
+□ 输入尽量引用真实来源，不要让人手抄（data-code-file 而不是粘贴代码）
+□ 两个以上的默认值可以省掉一次追问，就设默认值
+□ 交付方式最多一步（npm i 算一步，解压+找目录+重启算三步）
+□ 副作用脚本必须永不失败
+□ 写清楚「用户会怎么说」，不要假设他知道工具叫什么
+□ 猜不出来的值就留空，别拿默认值冒充结论
+□ 机器要读的数据别塞进给人看的文档</pre>
+
+<p>其中我最满意的还是把内容和样式拆开。以前每个片段都带着一堆样式，改起来很费劲；现在片段只写要展示什么，最终样式由构建脚本统一加。哪天想换颜色，改一个地方就行。</p>
+
+<p>最后两条是这一轮才加进来的。「留空」那条来自 Excel 的模组列——我原来填了猜出来的默认值，看着挺完整，实际上是在制造「已经确认过」的错觉。「别混在一起」那条来自文件清单：它该给导入系统读，放在正文里两头都不讨好。</p>
+
+<h2>九、最后说说效果</h2>
+
+<p>几个阶段的大致情况是这样：</p>
+
+<table>
+  <tr><th>阶段</th><th>代码量</th><th>交付方式</th><th>生成耗时</th></tr>
+  <tr><td>手工</td><td>—</td><td>贴图</td><td>约 40 分钟</td></tr>
+  <tr><td>第一版</td><td>814 行</td><td>手动拷文件</td><td>约 5 分钟 + 13 次上传</td></tr>
+  <tr><td>第二版</td><td>299 行</td><td>手动拷文件</td><td>约 5 分钟</td></tr>
+  <tr><td>第三版</td><td>299 行</td><td><code>npm i</code></td><td>约 1 分钟</td></tr>
+  <tr><td>第四版</td><td>1890 行</td><td><code>npm i</code></td><td>约 1 分钟，同时出 HTML / Word / Excel</td></tr>
+</table>
+
+<p>代码量从 299 涨到 1890，看着吓人，但多出来的部分基本都在导出上：<code>docx.js</code> 345 行、<code>xlsx.js</code> 300 行、着色器 179 行、ZIP 113 行、HTML 解析 93 行、调度 93 行，加起来 1120 多行。主报告链路（<code>build.js</code> + <code>changes.js</code> + <code>cli.js</code> + <code>install.js</code>）还是 420 多行，几乎没变。</p>
+
+<p>现在最明显的变化，是需求做完后不太抗拒写说明了。以前总觉得还得花半小时整理格式、贴图；现在让 AI 先生成一版，再看内容有没有遗漏，省事不少。</p>
+
+<p>回头看，第一版做得太重了。但也是折腾过那版，才知道问题根本不在截图速度，而在于能不能跳过截图。后来又因为 Word 需要，把图片方案捡回来用了一轮，再删掉——两次判断的依据不一样：第一次是「粘贴太麻烦」，第二次是「图片不能选中和搜索」。<b>同一个方案，换个场景就未必成立。</b></p>
+
+<p>对这种工具来说，先做出来，再慢慢删掉不必要的东西，可能比一开始就追求完整更合适。</p>
+
+<p tip="info">工具放在 <b>npmjs.com/package/dev-change-report</b>，有兴趣可以用 <code>npm i -D dev-change-report</code> 装一下。</p>

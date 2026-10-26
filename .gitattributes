@@ -1,0 +1,17 @@
+# 统一用 LF；Windows 上的 .ps1/.cmd 保留 CRLF，否则 PowerShell 解析可能出问题
+* text=auto eol=lf
+
+*.ps1 text eol=crlf
+*.cmd text eol=crlf
+*.bat text eol=crlf
+
+# 图片/压缩包按二进制处理，别让 git 试着改行尾
+*.png binary
+*.jpg binary
+*.docx binary
+*.xlsx binary
+*.tgz binary
+
+# 生成物不参与 diff 统计
+*.docx linguist-generated=true
+*.xlsx linguist-generated=true

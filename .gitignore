@@ -1,0 +1,16 @@
+node_modules/
+dist/
+*.tgz
+
+# 生成产物：一条命令就能重出，不进版本库
+docs/knowledge-share-html/
+change-report/
+_test*/
+_probe/
+*.log
+
+# 编辑器 / 系统
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
