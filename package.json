@@ -1,6 +1,6 @@
 {
   "name": "dev-change-report",
-  "version": "1.5.2",
+  "version": "1.5.3",
   "description": "整理代码改动或技术实践成可粘贴的富文本文档，支持开发改动说明与知识分享文章两种模式",
   "keywords": [
     "copilot",
